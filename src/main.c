@@ -1,6 +1,7 @@
 #include "nes.h"
 #include "tables.h"
 #include "ftp.h"
+#include "boot.inc"
 
 #define COL_BG    0x0F
 #define COL_BRAND 0x16
@@ -218,6 +219,12 @@ void _start(u64 eboot_base, u64 dlsym_addr, struct ext_args *ext) {
     s32 userId   = (s32)ext->dbg[3];
     s32 ftp_fd   = (s32)ext->dbg[4];
     s32 ftp_data_fd = (s32)ext->dbg[5];
+
+    /* Map RW memory over .data/.bss and apply the .rela.dyn fixups.
+     * MUST run before any global is read or written: RESP_204K and
+     * RESP_CORS are initialised pointers, and reading them before this
+     * would give link-time addresses instead of runtime ones. */
+    if (mmap) boot_data_region(G, mmap, munmap, sendto, log_fd, log_sa);
 
     if (!usleep || !load_mod) { ext->status = -1; ext->step = 2; return; }
 
