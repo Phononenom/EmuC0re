@@ -1,0 +1,78 @@
+# .github/workflows/build.yml
+name: Build EmuC0re
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ '*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc binutils make python3
+
+      - name: Build dist/EmuC0re
+        run: |
+          make clean
+          make dist
+
+      - name: Show manifest
+        run: cat dist/EmuC0re/manifest
+
+      - name: Verify relocations were kept
+        run: |
+          n=$(readelf -r nes_emu.elf | grep -c R_X86_64_RELATIVE || true)
+          echo "R_X86_64_RELATIVE entries: $n"
+          if [ "$n" -eq 0 ]; then
+            echo "FAIL: no RELATIVE relocations kept -- linker.ld may not be the split-segment one"
+            exit 1
+          fi
+
+      - name: Show artifact sizes
+        run: |
+          ls -l dist/EmuC0re/
+          stat -c '%n %s bytes' dist/EmuC0re/payload.bin
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmuC0re-dist
+          path: dist/EmuC0re/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: EmuC0re-dist
+          path: EmuC0re-dist
+
+      - name: Package for release
+        run: |
+          cd EmuC0re-dist
+          zip -r ../EmuC0re.zip .
+          cd ..
+          ls -lh EmuC0re.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: EmuC0re.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
